@@ -399,12 +399,6 @@ static int bql_init_term(struct bql_ctx *ctx)
 	keypad(ctx->w, TRUE);
 	nodelay(ctx->w, TRUE);
 
-	if (!has_colors()) {
-		fprintf(stderr, "terminal does not supporte colors!\n");
-		endwin();
-		return 1;
-	}
-
 	start_color();
 
 	init_pair(1, COLOR_RED, COLOR_BLACK);
