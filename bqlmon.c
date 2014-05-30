@@ -81,7 +81,6 @@ try_file:
 		fprintf(stderr, "Kernel too old, or invalid network device\n");
 		return -1;
 	}
-
 	ctx->num_visible_queues = ctx->num_queues;
 
 	return 0;
@@ -202,6 +201,39 @@ static int get_color_thresh(unsigned int val, unsigned int limit)
 		return 6;
 }
 
+static void bql_draw_arrows(struct bql_ctx *ctx, unsigned int q,
+				unsigned int limit)
+{
+	unsigned int i;
+	chtype ch;
+	int y, x;
+
+	x = q * QUEUE_SPACING + QUEUE_VAL_X - ctx->x_start;
+	y = ctx->rows - QUEUE_VAL_Y - limit - QUEUE_ARROW_Y;
+
+	if (q == ctx->vq_start && q != 0) {
+		for (i = 0; i < 3; i++) {
+			wmove(ctx->w, y, x + i);
+			if (i == 0)
+				ch = ACS_LARROW;
+			else
+				ch = ACS_HLINE;
+			waddch(ctx->w, ch);
+		}
+	}
+
+	if (q == ctx->vq_end - 1 && q != ctx->num_queues - 1) {
+		for (i = 3; i-- > 0; ) {
+			wmove(ctx->w, y, x - i);
+			if (i == 0)
+				ch = ACS_RARROW;
+			else
+				ch = ACS_HLINE;
+			waddch(ctx->w, ch);
+		}
+	}
+}
+
 static void bql_draw_one(struct bql_ctx *ctx, unsigned int q)
 {
 	struct bql_q_ctx *qctx = &ctx->queues[q];
@@ -215,12 +247,12 @@ static void bql_draw_one(struct bql_ctx *ctx, unsigned int q)
 	val = bql_poll_one_queue(qctx);
 	limit = ctx->queues[q].attrs[LIMIT].value;
 
-	x = q * QUEUE_SPACING + QUEUE_VAL_X;
+	x = q * QUEUE_SPACING + QUEUE_VAL_X - ctx->x_start;
 
 	snprintf(buf, sizeof(buf), "%02u", q);
 
 	/* Draw the queue number */
-	wmove(ctx->w, rows - QUEUE_NUM_Y, q * QUEUE_SPACING + QUEUE_SEP_X);
+	wmove(ctx->w, rows - QUEUE_NUM_Y, q * QUEUE_SPACING + QUEUE_SEP_X - ctx->x_start);
 	wattron(ctx->w, COLOR_PAIR(5));
 	wattron(ctx->w, A_BOLD);
 	waddstr(ctx->w, buf);
@@ -239,6 +271,9 @@ static void bql_draw_one(struct bql_ctx *ctx, unsigned int q)
 	/* Display the queue limit value */
 	wmove(ctx->w, rows - QUEUE_VAL_Y - limit, x);
 	waddch(ctx->w, ACS_BLOCK);
+
+	/* Display the arrows to indicate there is something */
+	bql_draw_arrows(ctx, q, limit);
 }
 
 static void bql_draw_main_items(struct bql_ctx *ctx)
@@ -283,41 +318,77 @@ static void bql_draw_main_items(struct bql_ctx *ctx)
 	wattroff(ctx->w, A_BOLD);
 }
 
+static void bql_recalc_visible_queues(struct bql_ctx *ctx)
+{
+	unsigned int val;
+
+	/* Get the number of times we need to repeat the ACS_HLINE */
+	val = ctx->num_queues * QUEUE_SPACING - 1;
+	if (val >= ctx->cols) {
+		val = ctx->cols - 2 * QUEUE_SEP_Y;
+		ctx->num_visible_queues = (ctx->cols / QUEUE_SPACING) - 1;
+	}
+	ctx->h_line_val = val;
+	ctx->x_end = val + 1;
+
+	ctx->vq_start = ctx->x_start / QUEUE_SPACING;
+	ctx->vq_end = ctx->num_visible_queues + ctx->vq_start;
+	if (ctx->vq_end >= ctx->num_queues)
+		ctx->vq_end = ctx->num_queues;
+}
+
 static void bql_draw_loop(struct bql_ctx *ctx)
 {
-	unsigned int q;
+	unsigned int q, exit = 0;
 	int ch;
 
-	while (1) {
+	while (!exit) {
 		wclear(ctx->w);
 
 		bql_draw_main_items(ctx);
 
-		for (q = 0; q < ctx->num_visible_queues; q++)
+		for (q = ctx->vq_start; q < ctx->vq_end; q++)
 			bql_draw_one(ctx, q);
 
-		wrefresh(ctx->w);
-
-		usleep(ctx->poll_freq * 1000);
-
 		ch = wgetch(ctx->w);
-		if (ch == KEY_F(1))
+		switch (ch) {
+		case KEY_F(1):
+			exit = 1;
 			break;
+
+		case KEY_LEFT:
+			if (ctx->x_start >= QUEUE_SPACING)
+				ctx->x_start -= QUEUE_SPACING;
+			break;
+
+		case KEY_RIGHT:
+			if (ctx->x_end - ctx->x_start >= QUEUE_SPACING &&
+				ctx->vq_end < ctx->num_queues)
+				ctx->x_start += QUEUE_SPACING;
+			break;
+		default:
+			usleep(ctx->poll_freq * 1000);
+			break;
+		}
+
+		bql_recalc_visible_queues(ctx);
+		wrefresh(ctx->w);
 	}
 }
 
 static int bql_init_term(struct bql_ctx *ctx)
 {
-	unsigned int val;
 	int rows, cols;
 
 	initscr();
 	getmaxyx(stdscr, rows, cols);
 	cbreak();
 	noecho();
+	curs_set(0);
 
 	ctx->rows = rows;
 	ctx->cols = cols;
+	ctx->x_start = 0;
 
 	ctx->w = newwin(rows, cols, 0, 0);
 	if (!ctx->w) {
@@ -343,14 +414,7 @@ static int bql_init_term(struct bql_ctx *ctx)
 	init_pair(5, COLOR_WHITE, COLOR_BLUE);
 	init_pair(6, COLOR_MAGENTA, COLOR_BLACK);
 
-	/* Get the number of times we need to repeat the ACS_HLINE */
-	val = ctx->num_queues * QUEUE_SPACING - 1;
-	if (val >= ctx->cols) {
-		val = ctx->cols - 2 * QUEUE_SEP_Y;
-		ctx->num_visible_queues = (ctx->cols / QUEUE_SPACING) - 1;
-	}
-
-	ctx->h_line_val = val;
+	bql_recalc_visible_queues(ctx);
 
 	ctx->version_x_pos = ctx->cols - strlen("Version: ") -
 		strlen(VERSION) - QUEUE_SPACING;
