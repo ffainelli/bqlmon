@@ -36,13 +36,11 @@ struct bql_ctx {
 	unsigned int num_queues;
 	unsigned int vq_start;
 	unsigned int vq_end;
-	unsigned int num_visible_queues;
 	struct bql_q_ctx *queues;
 	WINDOW *w;
 	int rows;
 	int cols;
 	unsigned int x_start;
-	unsigned int x_end;
 	unsigned int h_line_val;
 	unsigned int version_x_pos;
 };

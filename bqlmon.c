@@ -81,7 +81,6 @@ try_file:
 		fprintf(stderr, "Kernel too old, or invalid network device\n");
 		return -1;
 	}
-	ctx->num_visible_queues = ctx->num_queues;
 
 	return 0;
 }
@@ -323,16 +322,13 @@ static void bql_recalc_visible_queues(struct bql_ctx *ctx)
 	unsigned int val;
 
 	/* Get the number of times we need to repeat the ACS_HLINE */
-	val = ctx->num_queues * QUEUE_SPACING - 1;
-	if (val >= ctx->cols) {
+	val = ctx->num_queues * QUEUE_SPACING;
+	if (val >= ctx->cols)
 		val = ctx->cols - 2 * QUEUE_SEP_Y;
-		ctx->num_visible_queues = (ctx->cols / QUEUE_SPACING) - 1;
-	}
 	ctx->h_line_val = val;
-	ctx->x_end = val + 1;
 
 	ctx->vq_start = ctx->x_start / QUEUE_SPACING;
-	ctx->vq_end = ctx->num_visible_queues + ctx->vq_start;
+	ctx->vq_end = ctx->cols / QUEUE_SPACING + ctx->vq_start - 1;
 	if (ctx->vq_end >= ctx->num_queues)
 		ctx->vq_end = ctx->num_queues;
 }
@@ -362,8 +358,7 @@ static void bql_draw_loop(struct bql_ctx *ctx)
 			break;
 
 		case KEY_RIGHT:
-			if (ctx->x_end - ctx->x_start >= QUEUE_SPACING &&
-				ctx->vq_end < ctx->num_queues)
+			if (ctx->vq_end < ctx->num_queues)
 				ctx->x_start += QUEUE_SPACING;
 			break;
 		default:
