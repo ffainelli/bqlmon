@@ -475,6 +475,7 @@ int main(int argc, char **argv)
 out_win:
 	endwin();
 out:
+	free(ctx->queues);
 	free(ctx);
 	return 0;
 }
