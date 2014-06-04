@@ -1,5 +1,4 @@
-Byte Queue Limits monitor
-========================
+# Byte Queue Limits monitor
 
 This program uses the Linux Byte Queue Limits support that some Linux Ethernet
 drivers do support. Byte Queue Limits is refered to below as BQL. The program
@@ -11,8 +10,13 @@ Motivation for this program was twofold:
   as I was writing it
 - experiment and do something potentially useful with ncurses
 
-BQL in a nutshell
-=================
+# Snapshot
+
+Here is a snapshot of a 32 transmit queue devices:
+
+![Sample output](https://raw.githubusercontent.com/ffainelli/bqlmon/gh-pages/bqlmon_snapshot.png);
+
+# BQL in a nutshell
 
 BQL basically keeps track of how many bytes are in-flight, that are pending
 transmission in a given Ethernet adapter hardware queue. The more information
@@ -28,11 +32,10 @@ transmit function:
 
 In their transmit complete function they do the following:
 
-- free the transmit buffers
 - count how many packets and bytes have been transmitted
 - report how many packets and bytes have been completed
   (netdev_tx_completed_queue)
-- free the buffers
+- free the transmitted buffers
 
 Accurate reporting of how many buffers are in-flight allows for a better sizing
 of all software queueing.
@@ -43,7 +46,7 @@ context, but that interrupt never fires, we will quickly queue up many buffers
 that are not freed.
 
 BQL exposes a few sysfs attributes in
-/sys/class/net/<interface>/tx-<queue>/byte_queue_limits which are per-queue
+/sys/class/net/*interface*/tx-*queue*/byte_queue_limits which are per-queue
 information about:
 
 - in-flight packets
