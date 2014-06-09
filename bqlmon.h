@@ -10,7 +10,6 @@
 struct bql_sysfs_attr {
 	int fd;
 	char s_val[512];
-	char path[PATH_MAX];
 	unsigned int value;
 };
 
@@ -24,7 +23,6 @@ enum bql_sysfs_attr_map {
 
 struct bql_q_ctx {
 	unsigned int queue_num;
-	char *queue_path;
 	struct bql_sysfs_attr attrs[5];
 	struct bql_ctx *g;
 };

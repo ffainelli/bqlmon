@@ -88,11 +88,18 @@ try_file:
 static int bql_sysfs_file_init(struct bql_sysfs_attr *s, const char *dir,
 		const char *name)
 {
+	char path[PATH_MAX];
 	size_t n;
 
-	n = snprintf(s->path, sizeof(s->path), "%s/%s", dir, name);
+	n = snprintf(path, sizeof(path), "%s/%s", dir, name);
 	if (n <= 0)
 		return -1;
+
+	s->fd = open(path, O_RDONLY);
+	if (s->fd < 0) {
+		perror("open");
+		return s->fd;
+	}
 
 	return 0;
 }
@@ -100,17 +107,20 @@ static int bql_sysfs_file_init(struct bql_sysfs_attr *s, const char *dir,
 static int bql_sysfs_file_read(struct bql_sysfs_attr *s)
 {
 	ssize_t n;
+	off_t r;
 
-	s->fd = open(s->path, O_RDONLY);
-	if (s->fd < 0) {
-		perror("open");
-		return s->fd;
+	/* Rewind to the beginning */
+	r = lseek(s->fd, 0, SEEK_SET);
+	if (r < 0) {
+		perror("lseek");
+		return r;
 	}
 
 	n = read(s->fd, s->s_val, sizeof(s->s_val) - 1);
-	if (n < 0)
+	if (n < 0) {
 		perror("read");
-	close(s->fd);
+		return n;
+	}
 
 	n = sscanf(s->s_val, "%d", &s->value);
 	if (n < 1)
@@ -122,14 +132,15 @@ static int bql_sysfs_file_read(struct bql_sysfs_attr *s)
 	return 0;
 }
 
+static const char *attr_names[] = {
+	"hold_time", "inflight", "limit", "limit_max", "limit_min" };
+
 #define ARRAY_SIZE(x)	(sizeof((x)) / sizeof((x)[0]))
 
 static int bql_queue_init(struct bql_q_ctx *q)
 {
 	char path[PATH_MAX];
 	size_t n;
-	static const char *attr_names[] = {
-		"hold_time", "inflight", "limit", "limit_max", "limit_min" };
 	unsigned int i;
 	int ret;
 
@@ -143,11 +154,21 @@ static int bql_queue_init(struct bql_q_ctx *q)
 		ret = bql_sysfs_file_init(&q->attrs[i], path, attr_names[i]);
 		if (ret)
 			return ret;
-
-		bql_sysfs_file_read(&q->attrs[i]);
 	}
 
 	return 0;
+}
+
+static void bql_queue_exit(struct bql_q_ctx *q)
+{
+	unsigned int i;
+
+	for (i = 0; i < ARRAY_SIZE(attr_names); i++) {
+		if (q->attrs[i].fd >= 0) {
+			close(q->attrs[i].fd);
+			q->attrs[i].fd = -1;
+		}
+	}
 }
 
 static inline unsigned int bql_poll_one_queue(struct bql_q_ctx *ctx)
@@ -156,6 +177,15 @@ static inline unsigned int bql_poll_one_queue(struct bql_q_ctx *ctx)
 	bql_sysfs_file_read(&ctx->attrs[LIMIT]);
 
 	return ctx->attrs[INFLIGHT].value;
+}
+
+static void bql_queues_destroy(struct bql_ctx *ctx)
+{
+	unsigned int i;
+
+	for (i = 0; i < ctx->num_queues; i++)
+		bql_queue_exit(&ctx->queues[i]);
+	free(ctx->queues);
 }
 
 static int bql_queues_create(struct bql_ctx *ctx)
@@ -471,7 +501,7 @@ int main(int argc, char **argv)
 out_win:
 	endwin();
 out:
-	free(ctx->queues);
+	bql_queues_destroy(ctx);
 	free(ctx);
 	return 0;
 }
