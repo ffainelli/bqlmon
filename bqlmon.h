@@ -4,6 +4,8 @@
 #include <limits.h>
 #include <curses.h>
 
+#include <linux/ethtool.h>
+
 /*
  * 1:1 copy of the sysfs attributes
  */
@@ -29,7 +31,7 @@ struct bql_q_ctx {
 
 struct bql_ctx {
 	char *iface;
-	unsigned int interrupted;
+	struct ethtool_drvinfo info;
 	unsigned int poll_freq;
 	unsigned int num_queues;
 	unsigned int vq_start;

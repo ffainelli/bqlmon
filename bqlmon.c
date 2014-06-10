@@ -28,6 +28,10 @@
 #include <sys/stat.h>
 #include <sys/utsname.h>
 #include <fcntl.h>
+#include <net/if.h>
+#include <sys/socket.h>
+#include <sys/ioctl.h>
+#include <linux/sockios.h>
 
 #include "bqlmon.h"
 
@@ -81,6 +85,29 @@ try_file:
 		fprintf(stderr, "Kernel too old, or invalid network device\n");
 		return -1;
 	}
+
+	return 0;
+}
+
+static int bql_get_drv_info(struct bql_ctx *ctx)
+{
+	struct ifreq ifr;
+	int fd, ret;
+
+	fd = socket(AF_INET, SOCK_DGRAM, 0);
+	if (fd < 0)
+		return fd;
+
+	memset(&ifr, 0, sizeof(ifr));
+
+	strcpy(ifr.ifr_name, ctx->iface);
+	ctx->info.cmd = ETHTOOL_GDRVINFO;
+	ifr.ifr_data = (void *)&ctx->info;
+
+	ret = ioctl(fd, SIOCETHTOOL, &ifr);
+	close(fd);
+	if (ret < 0)
+		return ret;
 
 	return 0;
 }
@@ -324,6 +351,12 @@ static void bql_draw_main_items(struct bql_ctx *ctx)
 	wprintw(ctx->w, "%d (msecs)", ctx->poll_freq);
 	wattroff(ctx->w, A_BOLD);
 
+	wmove(ctx->w, ++y, PARAMS_X);
+	waddstr(ctx->w, "Driver: ");
+	wattron(ctx->w, A_BOLD);
+	wprintw(ctx->w, "%s (%s)", ctx->info.driver, ctx->info.version);
+	wattroff(ctx->w, A_BOLD);
+
 	/* Draw the separation line between queue number and values */
 	wmove(ctx->w, ++y, PARAMS_X);
 	for (i = 0; i < ctx->h_line_val; i++) {
@@ -483,6 +516,10 @@ int main(int argc, char **argv)
 
 	if (!ctx->poll_freq)
 		ctx->poll_freq = 10;
+
+	ret = bql_get_drv_info(ctx);
+	if (ret)
+		goto out;
 
 	ret = bql_sysfs_init(ctx);
 	if (ret)
