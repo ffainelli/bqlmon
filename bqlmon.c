@@ -269,23 +269,21 @@ static void bql_draw_arrows(struct bql_ctx *ctx, unsigned int q,
 
 	if (q == ctx->vq_start && q != 0) {
 		for (i = 0; i < 3; i++) {
-			wmove(ctx->w, y, x + i);
 			if (i == 0)
 				ch = ACS_LARROW;
 			else
 				ch = ACS_HLINE;
-			waddch(ctx->w, ch);
+			mvwaddch(ctx->w, y, x + i, ch);
 		}
 	}
 
 	if (q == ctx->vq_end - 1 && q != ctx->num_queues - 1) {
 		for (i = 3; i-- > 0; ) {
-			wmove(ctx->w, y, x - i);
 			if (i == 0)
 				ch = ACS_RARROW;
 			else
 				ch = ACS_HLINE;
-			waddch(ctx->w, ch);
+			mvwaddch(ctx->w, y, x - i, ch);
 		}
 	}
 }
@@ -308,25 +306,22 @@ static void bql_draw_one(struct bql_ctx *ctx, unsigned int q)
 	snprintf(buf, sizeof(buf), "%02u", q);
 
 	/* Draw the queue number */
-	wmove(ctx->w, rows - QUEUE_NUM_Y, q * QUEUE_SPACING + QUEUE_SEP_X - ctx->x_start);
 	wattron(ctx->w, COLOR_PAIR(5));
 	wattron(ctx->w, A_BOLD);
-	waddstr(ctx->w, buf);
+	mvwaddstr(ctx->w, rows - QUEUE_NUM_Y, q * QUEUE_SPACING + QUEUE_SEP_X - ctx->x_start, buf);
 	wattroff(ctx->w, A_BOLD);
 	wattroff(ctx->w, COLOR_PAIR(5));
 
 	/* Draw the queue value as a histogram */
 	for (i = 0; i < val; i++) {
 		color = get_color_thresh(i, limit);
-		wmove(ctx->w, rows - QUEUE_VAL_Y - i, x);
 		wattron(ctx->w, COLOR_PAIR(color));
-		waddch(ctx->w, QUEUE_CHAR | A_BOLD);
+		mvwaddch(ctx->w, rows - QUEUE_VAL_Y - i, x, QUEUE_CHAR | A_BOLD);
 		wattroff(ctx->w, COLOR_PAIR(color));
 	}
 
 	/* Display the queue limit value */
-	wmove(ctx->w, rows - QUEUE_VAL_Y - limit, x);
-	waddch(ctx->w, ACS_BLOCK);
+	mvwaddch(ctx->w, rows - QUEUE_VAL_Y - limit, x, ACS_BLOCK);
 
 	/* Display the arrows to indicate there is something */
 	bql_draw_arrows(ctx, q, limit);
@@ -334,7 +329,6 @@ static void bql_draw_one(struct bql_ctx *ctx, unsigned int q)
 
 static void bql_draw_main_items(struct bql_ctx *ctx)
 {
-	unsigned int i;
 	int y = PARAMS_Y;
 
 	box(ctx->w, 0, 0);
@@ -359,24 +353,22 @@ static void bql_draw_main_items(struct bql_ctx *ctx)
 
 	/* Draw the separation line between queue number and values */
 	wmove(ctx->w, ++y, PARAMS_X);
-	for (i = 0; i < ctx->h_line_val; i++) {
-		wmove(ctx->w, ctx->rows - QUEUE_SEP_Y, i + QUEUE_SEP_X);
-		waddch(ctx->w, ACS_HLINE);
-	}
+	mvwhline(ctx->w, ctx->rows - QUEUE_SEP_Y, QUEUE_SEP_X, ACS_HLINE,
+			ctx->h_line_val);
 
 	y = PARAMS_Y;
-	wmove(ctx->w, y, ctx->version_x_pos);
 	wattron(ctx->w, A_BOLD);
-	waddstr(ctx->w, "BQLmon");
+	mvwaddstr(ctx->w, y, ctx->version_x_pos, "BQLmon");
 	wattroff(ctx->w, A_BOLD);
+
 	wmove(ctx->w, ++y, ctx->version_x_pos);
 	waddstr(ctx->w, "Version: ");
 	wattron(ctx->w, A_BOLD);
 	wprintw(ctx->w, "%s", VERSION);
 	wattroff(ctx->w, A_BOLD);
-	wmove(ctx->w, ++y, ctx->version_x_pos);
+
 	wattron(ctx->w, A_BOLD);
-	waddstr(ctx->w, "F1 to exit");
+	mvwaddstr(ctx->w, ++y, ctx->version_x_pos, "F1 to exit");
 	wattroff(ctx->w, A_BOLD);
 }
 
