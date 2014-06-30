@@ -416,6 +416,12 @@ static void bql_draw_loop(struct bql_ctx *ctx)
 			if (ctx->vq_end < ctx->num_queues)
 				ctx->x_start += QUEUE_SPACING;
 			break;
+
+		case KEY_RESIZE:
+			endwin();
+			getmaxyx(stdscr, ctx->rows, ctx->cols);
+			break;
+
 		default:
 			usleep(ctx->poll_freq * 1000);
 			break;
