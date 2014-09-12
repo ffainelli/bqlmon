@@ -368,7 +368,7 @@ static void bql_draw_main_items(struct bql_ctx *ctx)
 	wattroff(ctx->w, A_BOLD);
 
 	wattron(ctx->w, A_BOLD);
-	mvwaddstr(ctx->w, ++y, ctx->version_x_pos, "F1 to exit");
+	mvwaddstr(ctx->w, ++y, ctx->version_x_pos, "Q to exit");
 	wattroff(ctx->w, A_BOLD);
 }
 
@@ -403,7 +403,8 @@ static void bql_draw_loop(struct bql_ctx *ctx)
 
 		ch = wgetch(ctx->w);
 		switch (ch) {
-		case KEY_F(1):
+		case 'Q':
+		case 'q':
 			exit = 1;
 			break;
 
