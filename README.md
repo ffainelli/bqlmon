@@ -46,7 +46,7 @@ context, but that interrupt never fires, we will quickly queue up many buffers
 that are not freed.
 
 BQL exposes a few sysfs attributes in
-/sys/class/net/*interface*/tx-*queue*/byte_queue_limits which are per-queue
+/sys/class/net/*interface*/queues/tx-*N*/byte_queue_limits/ which are per-queue
 information about:
 
 - in-flight packets
