@@ -25,15 +25,18 @@
 #include <string.h>
 #include <unistd.h>
 #include <curses.h>
+#include <stdint.h>
 #include <sys/stat.h>
 #include <sys/utsname.h>
 #include <fcntl.h>
 #include <net/if.h>
 #include <sys/socket.h>
 #include <sys/ioctl.h>
+#include <sys/timerfd.h>
 #include <linux/sockios.h>
-
 #include "bqlmon.h"
+
+#define SCALING (1024) // This is a lousy way to do scaling
 
 /* Locate the network interface and count its number of transmit queues */
 static int bql_sysfs_init(struct bql_ctx *ctx)
@@ -143,7 +146,7 @@ static int bql_sysfs_file_read(struct bql_sysfs_attr *s)
 		return r;
 	}
 
-	n = read(s->fd, s->s_val, sizeof(s->s_val) - 1);
+	n = read(s->fd, s->s_val, sizeof(s->s_val));
 	if (n < 0) {
 		perror("read");
 		return n;
@@ -152,9 +155,6 @@ static int bql_sysfs_file_read(struct bql_sysfs_attr *s)
 	n = sscanf(s->s_val, "%d", &s->value);
 	if (n < 1)
 		return -1;
-
-	/* scale the value by 1024 */
-	s->value /= 1024;
 
 	return 0;
 }
@@ -288,6 +288,12 @@ static void bql_draw_arrows(struct bql_ctx *ctx, unsigned int q,
 	}
 }
 
+static int bql_output_one(struct bql_ctx *ctx, unsigned int q)
+{
+	struct bql_q_ctx *qctx = &ctx->queues[q];
+	return(bql_poll_one_queue(qctx));
+}
+
 static void bql_draw_one(struct bql_ctx *ctx, unsigned int q)
 {
 	struct bql_q_ctx *qctx = &ctx->queues[q];
@@ -298,8 +304,8 @@ static void bql_draw_one(struct bql_ctx *ctx, unsigned int q)
 	int x;
 
 	rows = ctx->rows;
-	val = bql_poll_one_queue(qctx);
-	limit = ctx->queues[q].attrs[LIMIT].value;
+	val = bql_poll_one_queue(qctx)/SCALING;
+	limit = ctx->queues[q].attrs[LIMIT].value/SCALING;
 
 	x = q * QUEUE_SPACING + QUEUE_VAL_X - ctx->x_start;
 
@@ -388,10 +394,61 @@ static void bql_recalc_visible_queues(struct bql_ctx *ctx)
 		ctx->vq_end = ctx->num_queues;
 }
 
+static void ts_add(struct timespec *t, uint64_t ns)
+{
+	t->tv_nsec = t->tv_nsec + ns;
+	if(t->tv_nsec >= 1000000000L) {
+		t->tv_sec++;
+		t->tv_nsec = t->tv_nsec - 1000000000L ;
+	}
+}
+
+
+static void bql_output_loop(struct bql_ctx *ctx)
+{
+	unsigned int q, exit = 0;
+	uint64_t expirations = 0;
+	uint64_t totals = 0;
+	struct timespec time;
+
+	read(ctx->timer,&expirations,sizeof(uint64_t));
+	clock_gettime(CLOCK_REALTIME, &time);
+	q = ctx->monitor;
+
+	while (!exit) {
+		fprintf(ctx->fd,"%ld.%ld", time.tv_sec, time.tv_nsec);
+		if(q >= 0 ) {
+			int x = bql_output_one(ctx,q);
+			fprintf(ctx->fd, " %d %d",
+				ctx->queues[q].attrs[LIMIT].value, x);
+			fprintf(ctx->fd,"\n");
+		} else {
+			for (q = ctx->vq_start; q <= ctx->vq_end; q++) {
+				int x = bql_output_one(ctx,q);
+				fprintf(ctx->fd, " %d %d",
+					ctx->queues[q].attrs[LIMIT].value, x);
+			}
+			q = 0;
+			fprintf(ctx->fd,"\n");
+		}
+		read(ctx->timer,&expirations,sizeof(uint64_t));
+		ts_add(&time, expirations * ctx->poll_freq * 1000000);
+		if(ctx->count > 0) {
+			totals += expirations;
+			if(totals >= ctx->count)
+				exit = 1;
+		}
+	}
+}
+
 static void bql_draw_loop(struct bql_ctx *ctx)
 {
 	unsigned int q, exit = 0;
 	int ch;
+	uint64_t expirations;
+	struct timespec time;
+	read(ctx->timer,&expirations,sizeof(uint64_t));
+	clock_gettime(CLOCK_REALTIME, &time);
 
 	while (!exit) {
 		wclear(ctx->w);
@@ -424,7 +481,8 @@ static void bql_draw_loop(struct bql_ctx *ctx)
 			break;
 
 		default:
-			usleep(ctx->poll_freq * 1000);
+			read(ctx->timer,&expirations,sizeof(uint64_t));
+			ts_add(&time, expirations * ctx->poll_freq * 1000000);
 			break;
 		}
 
@@ -478,6 +536,9 @@ static void usage(const char *pname)
 	fprintf(stderr, "Usage: %s [options]\n"
 		"-i:	interface\n"
 		"-f:	poll frequency (msecs)\n"
+		"-o:	output file or - for stdout\n"
+		"-c:	count (run for count * frequency) \n"
+		"-Q:	queue monitor specific BQL queue \n"
 		"-h:	this help\n", pname);
 }
 
@@ -485,20 +546,30 @@ int main(int argc, char **argv)
 {
 	struct bql_ctx *ctx;
 	int opt, ret;
+	struct itimerspec interval;
 
-	ctx = malloc(sizeof(*ctx));
+	ctx = calloc(sizeof(*ctx),1);
 	if (!ctx)
 		return -ENOMEM;
 
-	memset(ctx, 0, sizeof(*ctx));
+	ctx->monitor = -1;
 
-	while ((opt = getopt(argc, argv, "i:f:h")) > 0) {
+	while ((opt = getopt(argc, argv, "c:Q:o:i:f:h")) > 0) {
 		switch (opt) {
 		case 'i':
 			ctx->iface = optarg;
 			break;
 		case 'f':
 			ctx->poll_freq = strtoul(optarg, 0, 10);
+			break;
+		case 'c':
+			ctx->count = strtoul(optarg, 0, 10);
+			break;
+		case 'o':
+			ctx->filename = optarg;
+			break;
+		case 'Q':
+			ctx->monitor = strtoul(optarg, 0, 10);
 			break;
 		default:
 			usage(argv[0]);
@@ -516,6 +587,18 @@ int main(int argc, char **argv)
 	if (!ctx->poll_freq)
 		ctx->poll_freq = 10;
 
+	if (ctx->filename) {
+		if(strcmp(ctx->filename,"-") == 0)
+			ctx->fd = stdout;
+		else
+			ctx->fd = fopen(ctx->filename,"w");
+
+		if(!ctx->fd) {
+			usage(argv[0]);
+			exit(EXIT_FAILURE);
+		}
+	}
+
 	ret = bql_get_drv_info(ctx);
 	if (ret)
 		goto out;
@@ -524,15 +607,35 @@ int main(int argc, char **argv)
 	if (ret)
 		goto out;
 
+	if (ctx->monitor >= 1 && ctx->num_queues - 1 > ctx->monitor) {
+		fprintf(stderr, "Queue %d out of range\n", ctx->monitor);
+		goto out;
+	}
+
 	ret = bql_queues_create(ctx);
 	if (ret)
 		goto out;
 
-	ret = bql_init_term(ctx);
-	if (ret)
-		goto out_win;
+	interval.it_interval.tv_sec = 0;
+	interval.it_interval.tv_nsec = ctx->poll_freq * 1000000;
+	interval.it_value.tv_sec = 0;
+	interval.it_value.tv_nsec = ctx->poll_freq * 1000000;
 
-	bql_draw_loop(ctx);
+	ctx->timer = timerfd_create(CLOCK_MONOTONIC, 0);
+	if (ctx->timer) {
+	    if (timerfd_settime(ctx->timer, 0, &interval, NULL) == -1)
+	      fprintf(stderr,("timerfd_settime"));
+	}
+
+	if(!ctx->filename) {
+		ret = bql_init_term(ctx);
+		if (ret)
+			goto out_win;
+
+		bql_draw_loop(ctx);
+	} else {
+		bql_output_loop(ctx);
+	}
 
 out_win:
 	endwin();

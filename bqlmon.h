@@ -31,8 +31,13 @@ struct bql_q_ctx {
 
 struct bql_ctx {
 	char *iface;
+	char *filename;
+	FILE *fd;
 	struct ethtool_drvinfo info;
 	unsigned int poll_freq;
+	int timer;
+	int count;
+	int monitor;
 	unsigned int num_queues;
 	unsigned int vq_start;
 	unsigned int vq_end;
