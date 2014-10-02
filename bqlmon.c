@@ -428,7 +428,7 @@ static void bql_output_loop(struct bql_ctx *ctx)
 				fprintf(ctx->fd, " %d %d",
 					ctx->queues[q].attrs[LIMIT].value, x);
 			}
-			q = 0;
+			q = -1;
 			fprintf(ctx->fd,"\n");
 		}
 		read(ctx->timer,&expirations,sizeof(uint64_t));
