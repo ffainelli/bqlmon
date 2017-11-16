@@ -36,7 +36,7 @@
 #include <linux/sockios.h>
 #include "bqlmon.h"
 
-#define SCALING (1024) // This is a lousy way to do scaling
+#define DEFAULT_SCALING (1024) // This is a lousy way to do scaling
 
 /* Locate the network interface and count its number of transmit queues */
 static int bql_sysfs_init(struct bql_ctx *ctx)
@@ -304,8 +304,8 @@ static void bql_draw_one(struct bql_ctx *ctx, unsigned int q)
 	int x;
 
 	rows = ctx->rows;
-	val = bql_poll_one_queue(qctx)/SCALING;
-	limit = ctx->queues[q].attrs[LIMIT].value/SCALING;
+	val = bql_poll_one_queue(qctx)/ctx->scaling;
+	limit = ctx->queues[q].attrs[LIMIT].value/ctx->scaling;
 
 	x = q * QUEUE_SPACING + QUEUE_VAL_X - ctx->x_start;
 
@@ -536,6 +536,7 @@ static void usage(const char *pname)
 	fprintf(stderr, "Usage: %s [options]\n"
 		"-i:	interface\n"
 		"-f:	poll frequency (msecs)\n"
+		"-s:	scaling (higher means shorter bars, default 1024\n"
 		"-o:	output file or - for stdout\n"
 		"-c:	count (run for count * frequency) \n"
 		"-Q:	queue monitor specific BQL queue \n"
@@ -553,14 +554,18 @@ int main(int argc, char **argv)
 		return -ENOMEM;
 
 	ctx->monitor = -1;
+	ctx->scaling = DEFAULT_SCALING;
 
-	while ((opt = getopt(argc, argv, "c:Q:o:i:f:h")) > 0) {
+	while ((opt = getopt(argc, argv, "c:Q:o:i:f:s:h")) > 0) {
 		switch (opt) {
 		case 'i':
 			ctx->iface = optarg;
 			break;
 		case 'f':
 			ctx->poll_freq = strtoul(optarg, 0, 10);
+			break;
+		case 's':
+			ctx->scaling = strtoul(optarg, 0, 10);
 			break;
 		case 'c':
 			ctx->count = strtoul(optarg, 0, 10);

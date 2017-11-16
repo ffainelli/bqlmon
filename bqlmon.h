@@ -38,6 +38,7 @@ struct bql_ctx {
 	int timer;
 	int count;
 	int monitor;
+	int scaling;
 	unsigned int num_queues;
 	unsigned int vq_start;
 	unsigned int vq_end;
